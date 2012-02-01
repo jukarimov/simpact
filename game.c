@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <ncurses.h>
 #include <assert.h>
+#include <time.h>
+#include <stdlib.h>
 
 int maxx =	94;
 int maxy =	35;
@@ -21,7 +23,19 @@ int	end = 0;
 char *ship[] = {
 	"  /.\\ ",
 	"  |0|  ",
-	" /V V\\",
+	" /V V\\"
+};
+
+char *ship_dd[] = {
+	"  %.| ",
+	"  /@-- ",
+	" /# @\\"
+};
+
+char *star[] = {
+	"    |   ",
+	" -- * --",
+	"    |   "
 };
 
 char *mothership[] = {
@@ -30,13 +44,21 @@ char *mothership[] = {
     "    \\/www\\/  ",
     "    /wwwww\\   ",
     "   /WWWWWWW\\  ",
-    "  |OOOOOOOOO|  ",
+    "--|OOOOOOOOO|--",
     "   \\MMMMMMM/  ",
     "    \\mmmmm/   ",
     "    /\\mmm/\\  ",
     "   /  \\m/  \\ ",
     "  /   /+\\   \\"
+};
 
+char *ufo_body[] = {
+	"   VV   ",
+	"-@-MM-@-"
+};
+char *ufo_body_dd[] = {
+	"_V@_",
+	"/@-"
 };
 
 char *mothership_dead[] = {
@@ -54,53 +76,40 @@ char *mothership_dead[] = {
 };
 
 #define MOTHERSHIP_SPEED	20
-#define MOTHERSHIP_LIVE		20
-
-char *block[] = {
-
-	"+-----------+",
-	"|           |",
-	"|   \\o/    |",
-	"|     0     |",
-	"|    / \\   |",
-	"|           |",
-	"+-----------+"
-};
 
 struct unit {
 	int x, y;
 	int shots;
-	int step;
+	int step, step_static;
 	struct shot {
+		int active;
 		int x, y;
 		int type;
 	} shot[10];
 	char	*name;
 	char	**gfxdat;
 	char	**gfxdat_dead;
-	int	layers;
+	int	length;
 	int	width;
 	int	health;
 };
 
 struct unit		user;
 #define USERHEAT	10
-struct unit		ai[10];
+struct unit		ai[100];
 
 int arms[] = { '.', ':', '|', '!', '^', '#', '*', 'o', 'i', 'A', 'x' };
 
 enum {
-	gun,
-	gun2,
 	laser,
-	shell,
-	bomb1,
-	bomb2,
-	bomb3,
-	bomb4,
-	bomb5,
-	bomb6,
-	bomb7,
+	arm0,
+	arm1,
+	arm2,
+	arm3,
+	arm4,
+	arm5,
+	arm6,
+	arm7,
 };
 
 /* ========================================================================= */
@@ -124,31 +133,42 @@ void closedsp()
     endwin();
 }
 
-void ai_move()
+void ai_move(struct unit *u)
 {
-	int j = 0;
-	if (!--ai[j].step)
-		ai[j].step = MOTHERSHIP_SPEED;
+	if (!--u->step) // to slow down
+		u->step = u->step_static;
 	else
 		return;
 
-	if (ai[j].y++ > maxy)
-		ai[j].y = 0;
+	if (u->y++ > maxy && u->health > 0) {
+		u->y = -15 * rand() % maxy;
+		u->x = rand() % maxx;
+	}
+
+	else if (u->health < 0 && !strcmp(u->name,"obi_van")) {
+		printf("You were shot\n");
+		closedsp();
+		exit(0);
+	}
 }
 
 void draw_units()
 {
 	erase();
 
-	int i;
-	for (i = 0; i < user.layers; i++)
+	int i, j;
+
+	for (j = 0; j < 20; j++) {
+
+		for (i = 0; i < ai[j].length; i++)
+			mvprintw(ai[j].y + i, ai[j].x, ai[j].gfxdat[i]);
+
+		ai_move(&ai[j]);
+	}
+
+	for (i = 0; i < user.length; i++)
 		mvprintw(user.y + i, user.x, user.gfxdat[i]);
 
-	int j = 0;
-	for (i = 0; i < ai[j].layers; i++)
-		mvprintw(ai[j].y + i, ai[j].x, ai[j].gfxdat[i]);
-
-	ai_move();
 }
 
 void moveshot(int n)
@@ -159,6 +179,7 @@ void moveshot(int n)
 	if (user.shot[n].y > 0)
 		user.shot[n].y--;
 	else {
+		user.shot[n].active = 0;
 		for (i = n; i < user.shots; i++) {
 			user.shot[i] = user.shot[i+1];
 		}
@@ -166,28 +187,29 @@ void moveshot(int n)
 	}
 }
 
-void check_collision(struct shot shot, struct unit target)
+void check_collision(struct shot *shot, struct unit *target)
 {
-	if (shot.y == 0)
+	if (shot->y > target->y && shot->y < target->y + target->length &&
+	    shot->x > target->x && shot->x < target->x + target->width && shot->active == 1)
 	{
-		
-		if (--target.health == 0) {
-			target.gfxdat = target.gfxdat_dead;
-		}
+		shot->active = 0; // already damaged, can't hurt anymore
+		shot->type = ' ';
+		if (--target->health < 0)
+			target->gfxdat = target->gfxdat_dead;
 	}
 }
 
 void update_shots()
 {
-	mvprintw(0, 0, "mothership:%d\n", ai[0].health);
-	int i;
+	int i, j;
 	for (i = 0; i < user.shots; i++) {
 		moveshot(i);
 		mvaddch(user.shot[i].y, user.shot[i].x, user.shot[i].type);
-		check_collision(user.shot[i], ai[0]);
+		for (j = 0; j < 10; j++)
+			check_collision(&user.shot[i], &ai[j]);
 	}
-	refresh();
 
+	refresh();
 }
 
 void fire(int type)
@@ -200,16 +222,19 @@ void fire(int type)
 	else {
 		// make space for new shot
 		int allhot = 1;
+
 		for (i = 0; i < user.shots; i++) {
 			if (user.shot[i].y <= 0) {
 				allhot = 0;
 				break;
 			}
 		}
+
 		if (allhot && user.shots < USERHEAT - 1) {
 			allhot = 0;
 			user.shots++;
 		}
+
 		assert(user.shots < USERHEAT);
 		if (allhot) {
 			// cool down...
@@ -219,6 +244,7 @@ void fire(int type)
 		user.shot[i].x = user.x + user.width / 2;
 		user.shot[i].y = user.y + 1;
 		user.shot[i].type = type;
+		user.shot[i].active = 1;
 		mvaddch(user.shot[i].y, user.shot[i].x, user.shot[i].type);
 	}
 
@@ -266,27 +292,54 @@ void userctl(int key)
 
 int main()
 {
-	user.x		= 50;
-	user.y		= 35;
-	user.shots	= 0;
-	user.name	= "real people";
-	user.gfxdat	= ship;
-	user.layers	= ARRAYSIZE(ship);
-	user.width	= strlen(user.gfxdat[0]);
-	user.step	= 2;
-	user.health	= 100;
+	user.x			= 50;
+	user.y			= 35;
+	user.shots		= 0;
+	user.name		= "obi van";
+	user.gfxdat		= ship;
+	user.gfxdat_dead	= ship_dd;
+	user.length		= ARRAYSIZE(ship);
+	user.width		= strlen(user.gfxdat[0]);
+	user.step		= 2;
+	user.step_static	= 1;
+	user.health		= 100;
 
 	int j = 0;
-	ai[j].x		= 15;
-	ai[j].y		= -5;
+	ai[j].x			= 15;
+	ai[j].y			= -15;
 	ai[j].name		= "mother ship";
-	ai[j].gfxdat	= mothership;
+	ai[j].gfxdat		= mothership;
 	ai[j].gfxdat_dead	= mothership_dead;
-	ai[j].layers	= ARRAYSIZE(mothership);
-	ai[j].width	= strlen(user.gfxdat[0]);
-	ai[j].step	= 1;
-	ai[j].health	= MOTHERSHIP_LIVE;
+	ai[j].length		= ARRAYSIZE(mothership);
+	ai[j].width		= strlen(mothership[0]);
+	ai[j].step		= 1;
+	ai[j].step_static	= 1;
+	ai[j].health		= 5;
 
+	for (j = 1; j < 10; j++) {
+		ai[j].x			= 15;
+		ai[j].y			= -5;
+		ai[j].name		= "ufo-enemy";
+		ai[j].gfxdat		= ufo_body;
+		ai[j].gfxdat_dead	= ufo_body_dd;
+		ai[j].length		= ARRAYSIZE(ufo_body);
+		ai[j].width		= strlen(ufo_body[0]);
+		ai[j].step		= 1;
+		ai[j].step_static	= 1;
+		ai[j].health		= 1;
+	}
+
+	for (j = 10; j < 20; j++) {
+		ai[j].x			= 15;
+		ai[j].y			= -5;
+		ai[j].name		= "star";
+		ai[j].gfxdat		= star;
+		ai[j].length		= ARRAYSIZE(star);
+		ai[j].width		= strlen(star[0]);
+		ai[j].step		= 1;
+		ai[j].step_static	= 1;
+		ai[j].health		= 999;
+	}
 
 	if(opendsp())
 		fprintf(stderr, "curses init failed\n");
