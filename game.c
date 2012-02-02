@@ -27,15 +27,15 @@ char *ship[] = {
 };
 
 char *ship_dd[] = {
-	"  %.| ",
-	"  /@-- ",
-	" /# @\\"
+	"~ %.~ / ",
+	"- * - @-- ",
+	" /  @\\"
 };
 
 char *star[] = {
-	"    |   ",
-	" -- * --",
-	"    |   "
+	"   |   ",
+	"-- * --",
+	"   |   "
 };
 
 char *mothership[] = {
@@ -57,8 +57,8 @@ char *ufo_body[] = {
 	"-@-MM-@-"
 };
 char *ufo_body_dd[] = {
-	"_V@_",
-	"/@-"
+	"_V  \\ @_",
+	"/|  @-"
 };
 
 char *mothership_dead[] = {
@@ -92,6 +92,7 @@ struct unit {
 	int	length;
 	int	width;
 	int	health;
+	int	hitable;
 };
 
 struct unit		user;
@@ -133,24 +134,7 @@ void closedsp()
     endwin();
 }
 
-void ai_move(struct unit *u)
-{
-	if (!--u->step) // to slow down
-		u->step = u->step_static;
-	else
-		return;
-
-	if (u->y++ > maxy && u->health > 0) {
-		u->y = -15 * rand() % maxy;
-		u->x = rand() % maxx;
-	}
-
-	else if (u->health < 0 && !strcmp(u->name,"obi_van")) {
-		printf("You were shot\n");
-		closedsp();
-		exit(0);
-	}
-}
+void ai_move(struct unit *u);
 
 void draw_units()
 {
@@ -160,16 +144,44 @@ void draw_units()
 
 	for (j = 0; j < 20; j++) {
 
+		ai_move(&ai[j]);
+
 		for (i = 0; i < ai[j].length; i++)
 			mvprintw(ai[j].y + i, ai[j].x, ai[j].gfxdat[i]);
 
-		ai_move(&ai[j]);
 	}
 
 	for (i = 0; i < user.length; i++)
 		mvprintw(user.y + i, user.x, user.gfxdat[i]);
+}
+
+void check_collision_units(struct unit *u)
+{
+	if (u->y + u->length > user.y && u->y < user.y + user.length / 2 &&
+	    u->x + u->width > user.x && u->x < user.x + user.width / 2 &&
+	    u->hitable && u->health > 0)
+	{
+		user.health = 0;
+		user.gfxdat = user.gfxdat_dead;
+	}
 
 }
+
+void ai_move(struct unit *u)
+{
+	check_collision_units(u);
+
+	if (!--u->step) // to slow down
+		u->step = u->step_static;
+	else
+		return;
+
+	if (((u->y < 0) || (u->y++ > maxy)) && u->health > 0) {
+		u->y = (random() % maxy) * -10;
+		u->x = random() % maxx;
+	}
+}
+
 
 void moveshot(int n)
 {
@@ -187,7 +199,7 @@ void moveshot(int n)
 	}
 }
 
-void check_collision(struct shot *shot, struct unit *target)
+void check_collision_shots(struct shot *shot, struct unit *target)
 {
 	if (shot->y > target->y && shot->y < target->y + target->length &&
 	    shot->x > target->x && shot->x < target->x + target->width && shot->active == 1)
@@ -206,7 +218,7 @@ void update_shots()
 		moveshot(i);
 		mvaddch(user.shot[i].y, user.shot[i].x, user.shot[i].type);
 		for (j = 0; j < 10; j++)
-			check_collision(&user.shot[i], &ai[j]);
+			check_collision_shots(&user.shot[i], &ai[j]);
 	}
 
 	refresh();
@@ -251,23 +263,29 @@ void fire(int type)
 	refresh();
 }
 
-bool quit()
+void gpause()
 {
-	int c = 0;
-	while ((c = getch()) != 'y' || c != 'n')
-		mvprintw(35, 0, "Quit (y/n): \n");
-	if (c == 'y')
-		return true;
-	return false;
+	while (1) {
+		mvprintw(maxy / 2, maxx / 2, "Paused (p to resume)");
+		refresh();
+		int c = getchar();
+		if (c == 'p' || c == 'P')
+			break;
+	}
 }
 
 void userctl(int key)
 {
+	if (user.health <= 0)
+		end = 1;
+
 	switch (key) 
 	{
+	case 'p':
+		gpause();
+		break;
 	case 'q':
-		//if (quit())
-			end = 1;
+		end = 1;
 		break;
 	case 'w':
 		user.y -= user.y > miny ? user.step : 0;
@@ -292,10 +310,13 @@ void userctl(int key)
 
 int main()
 {
+	unsigned int seed = time(NULL);
+	srandom(seed);
+
 	user.x			= 50;
 	user.y			= 35;
 	user.shots		= 0;
-	user.name		= "obi van";
+	user.name		= "obi van kinobi";
 	user.gfxdat		= ship;
 	user.gfxdat_dead	= ship_dd;
 	user.length		= ARRAYSIZE(ship);
@@ -303,6 +324,7 @@ int main()
 	user.step		= 2;
 	user.step_static	= 1;
 	user.health		= 100;
+	user.hitable		= true;
 
 	int j = 0;
 	ai[j].x			= 15;
@@ -315,6 +337,7 @@ int main()
 	ai[j].step		= 1;
 	ai[j].step_static	= 1;
 	ai[j].health		= 5;
+	ai[j].hitable		= true;
 
 	for (j = 1; j < 10; j++) {
 		ai[j].x			= 15;
@@ -327,6 +350,7 @@ int main()
 		ai[j].step		= 1;
 		ai[j].step_static	= 1;
 		ai[j].health		= 1;
+		ai[j].hitable		= true;
 	}
 
 	for (j = 10; j < 20; j++) {
@@ -339,6 +363,7 @@ int main()
 		ai[j].step		= 1;
 		ai[j].step_static	= 1;
 		ai[j].health		= 999;
+		ai[j].hitable		= false;
 	}
 
 	if(opendsp())
@@ -351,7 +376,6 @@ int main()
 		update_shots();
 		usleep(SLEEPT);
 	}
-
 	closedsp();
 	return 0;
 }
